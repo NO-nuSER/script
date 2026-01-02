@@ -1,0 +1,400 @@
+-- 🎁 Wide Animated GUI Executor Script: Optimized Map Color / Aimbot / Chams / Fly / Speed / Noclip / Enemy Indicators / Watermark / Function Indicators
+
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local LP = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Mouse = LP:GetMouse()
+local StatsService = game:GetService("Stats")
+local MarketplaceService = game:GetService("MarketplaceService")
+
+-- ===== Settings =====
+local MenuKey = Enum.KeyCode.Insert
+local AIM_KEY = Enum.UserInputType.MouseButton2
+local AIM_PART = "Head"
+
+local NormalSpeed = 16
+local FastSpeed = 40
+local SmoothAim = 0.3
+local FlySpeed = 60
+local ChamsColor = Color3.fromRGB(0,255,0)
+local EnemyIndicatorSize = 30
+local MapColor = Color3.fromRGB(255,255,255)
+
+-- ===== State =====
+local MenuOpen = false
+local Aiming = false
+local AimbotEnabled = true
+local ChamsEnabled = true
+local FlyEnabled = false
+local SpeedEnabled = false
+local NoclipEnabled = false
+
+local bodyGyro, bodyVel
+local Chams = {}
+local EnemyIndicators = {}
+
+-- ===== Cache map parts for optimized coloring =====
+local MapParts = {}
+local LastMapColor = MapColor
+
+for _, obj in ipairs(workspace:GetDescendants()) do
+    if obj:IsA("BasePart") and not obj:IsDescendantOf(LP.Character) and not obj:IsDescendantOf(Players) then
+        table.insert(MapParts, obj)
+    end
+end
+
+local function ApplyMapColor(color)
+    if color == LastMapColor then return end
+    LastMapColor = color
+    task.spawn(function()
+        for _, part in ipairs(MapParts) do
+            if part and part.Parent then
+                part.Color = color
+            end
+        end
+    end)
+end
+
+-- ===== ScreenGui =====
+local ScreenGui = Instance.new("ScreenGui", game.CoreGui)
+ScreenGui.Name = "BabsGUI"
+
+-- ===== Main Frame =====
+local Frame = Instance.new("Frame", ScreenGui)
+Frame.Size = UDim2.new(0, 500, 0, 300)
+Frame.Position = UDim2.new(0.5, -250, 0.5, -150)
+Frame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+Frame.BorderSizePixel = 0
+Frame.Visible = false
+Frame.ClipsDescendants = true
+Frame.AnchorPoint = Vector2.new(0.5,0.5)
+
+-- ===== Tab Buttons =====
+local Tabs = {}
+local TabNames = {"Aimbot","Visual","Misc"}
+local ActiveTab = "Aimbot"
+
+for i, name in ipairs(TabNames) do
+    local btn = Instance.new("TextButton", Frame)
+    btn.Size = UDim2.new(0, 166, 0, 35)
+    btn.Position = UDim2.new(0, (i-1)*166, 0, 0)
+    btn.Text = name
+    btn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+    btn.TextColor3 = Color3.fromRGB(255,255,255)
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 18
+    btn.MouseButton1Click:Connect(function()
+        ActiveTab = name
+        for _, t in pairs(Tabs) do
+            t.Visible = (t.Name==name)
+        end
+    end)
+end
+
+-- ===== Tab Frames =====
+for _, name in ipairs(TabNames) do
+    local tab = Instance.new("Frame", Frame)
+    tab.Name = name
+    tab.Position = UDim2.new(0,0,0,35)
+    tab.Size = UDim2.new(1,0,1,-35)
+    tab.BackgroundTransparency = 1
+    tab.Visible = (name==ActiveTab)
+    Tabs[name] = tab
+end
+
+-- ===== Helper Functions =====
+local function CreateButton(parent,text,y,cb)
+    local b = Instance.new("TextButton", parent)
+    b.Size = UDim2.new(0, 480, 0, 30)
+    b.Position = UDim2.new(0,10,0,y)
+    b.BackgroundColor3 = Color3.fromRGB(70,70,70)
+    b.TextColor3 = Color3.fromRGB(255,255,255)
+    b.Font = Enum.Font.SourceSansBold
+    b.TextSize = 16
+    b.Text = text
+    b.MouseButton1Click:Connect(cb)
+end
+
+local function CreateSlider(parent,text,y,min,max,default,callback)
+    local label = Instance.new("TextLabel", parent)
+    label.Size = UDim2.new(0, 480, 0, 20)
+    label.Position = UDim2.new(0,10,0,y)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.fromRGB(255,255,255)
+    label.Font = Enum.Font.SourceSansBold
+    label.TextSize = 14
+    label.Text = text..": "..default
+
+    local bar = Instance.new("Frame", parent)
+    bar.Size = UDim2.new(0, 480, 0, 15)
+    bar.Position = UDim2.new(0,10,0,y+20)
+    bar.BackgroundColor3 = Color3.fromRGB(50,50,50)
+    bar.BorderSizePixel = 0
+    bar.ClipsDescendants = true
+
+    local handle = Instance.new("Frame", bar)
+    handle.Size = UDim2.new(0, 12, 1, 0)
+    handle.Position = UDim2.new((default - min)/(max-min), 0, 0, 0)
+    handle.BackgroundColor3 = Color3.fromRGB(0,255,0)
+
+    local dragging = false
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging=true end
+    end)
+    handle.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging=false end
+    end)
+    bar.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType==Enum.UserInputType.MouseMovement then
+            local mouseX = UIS:GetMouseLocation().X
+            local posX = math.clamp(mouseX - bar.AbsolutePosition.X, 0, bar.AbsoluteSize.X)
+            local val = min + (max-min)*(posX/bar.AbsoluteSize.X)
+            handle.Position = UDim2.new((val-min)/(max-min),0,0,0)
+            label.Text = string.format("%s: %.2f",text,val)
+            callback(val)
+        end
+    end)
+end
+
+-- ===== Tabs content =====
+local y = 10
+-- Aimbot tab
+CreateButton(Tabs["Aimbot"],"Toggle Aimbot",y,function() AimbotEnabled = not AimbotEnabled end)
+y=y+40
+CreateSlider(Tabs["Aimbot"],"Aim Smooth",y,0,1,SmoothAim,function(v) SmoothAim=v end)
+
+-- Visual tab
+y=10
+CreateButton(Tabs["Visual"],"Toggle Chams",y,function() ChamsEnabled = not ChamsEnabled end)
+y=y+40
+CreateSlider(Tabs["Visual"],"Chams Color Hue",y,0,1,0,function(v) ChamsColor=Color3.fromHSV(v,1,1) end)
+y=y+80
+CreateSlider(Tabs["Visual"], "Map Color Hue", y, 0, 1, 0, function(v)
+    MapColor = Color3.fromHSV(v,1,1)
+    ApplyMapColor(MapColor)
+end)
+
+-- Misc tab
+y=10
+CreateButton(Tabs["Misc"],"Toggle Fly",y,function() FlyEnabled=not FlyEnabled end)
+y=y+40
+CreateSlider(Tabs["Misc"],"Fly Speed",y,10,200,FlySpeed,function(v) FlySpeed=v end)
+y=y+40
+CreateButton(Tabs["Misc"],"Toggle Speed",y,function() SpeedEnabled=not SpeedEnabled end)
+y=y+50
+CreateSlider(Tabs["Misc"],"Enemy Indicator Size",y,10,100,EnemyIndicatorSize,function(v) EnemyIndicatorSize=v end)
+y=y+50
+CreateButton(Tabs["Misc"], "Toggle Noclip", y, function() NoclipEnabled = not NoclipEnabled end)
+
+-- ===== Input =====
+UIS.InputBegan:Connect(function(i)
+    if i.KeyCode==MenuKey then
+        MenuOpen=not MenuOpen
+        TweenService:Create(Frame,TweenInfo.new(0.3,Enum.EasingStyle.Quad),{Size=MenuOpen and UDim2.new(0,500,0,300) or UDim2.new(0,0,0,0)}):Play()
+        Frame.Visible=true
+        if not MenuOpen then
+            wait(0.3)
+            Frame.Visible=false
+        end
+    end
+    if i.UserInputType==AIM_KEY then Aiming=true end
+end)
+UIS.InputEnded:Connect(function(i)
+    if i.UserInputType==AIM_KEY then Aiming=false end
+end)
+
+-- ===== Core functions =====
+local function GetClosest()
+    local best,dist=nil,math.huge
+    for _,p in pairs(Players:GetPlayers()) do
+        if p~=LP and p.Character and p.Character:FindFirstChild(AIM_PART) then
+            local hum=p.Character:FindFirstChild("Humanoid")
+            if hum and hum.Health>0 then
+                local pos,vis=Camera:WorldToViewportPoint(p.Character[AIM_PART].Position)
+                if vis then
+                    local d=(Vector2.new(pos.X,pos.Y)-Vector2.new(Mouse.X,Mouse.Y)).Magnitude
+                    if d<dist then dist,best=d,p end
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function UpdateChams()
+    for _,p in pairs(Players:GetPlayers()) do
+        if p~=LP and p.Character then
+            for _,part in pairs(p.Character:GetDescendants()) do
+                if part:IsA("BasePart") and not Chams[part] then
+                    local h=Instance.new("Highlight",part)
+                    h.Adornee=part
+                    h.FillColor=ChamsColor
+                    h.FillTransparency=0.5
+                    h.OutlineTransparency=1
+                    Chams[part]=h
+                end
+            end
+        end
+    end
+end
+
+local function UpdateEnemyIndicators()
+    for _,p in pairs(Players:GetPlayers()) do
+        if p~=LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local hum=p.Character:FindFirstChild("Humanoid")
+            if not EnemyIndicators[p] then
+                local label=Instance.new("TextLabel",ScreenGui)
+                label.BackgroundTransparency=0.5
+                label.BackgroundColor3=Color3.fromRGB(0,0,0)
+                label.TextColor3=Color3.fromRGB(255,255,255)
+                label.Font=Enum.Font.SourceSansBold
+                label.TextSize=EnemyIndicatorSize/2
+                EnemyIndicators[p]=label
+            end
+            local label=EnemyIndicators[p]
+            local pos,onScreen=Camera:WorldToViewportPoint(p.Character.HumanoidRootPart.Position+Vector3.new(0,3,0))
+            if onScreen then
+                label.Position=UDim2.new(0,pos.X-EnemyIndicatorSize*2.5,0,pos.Y-EnemyIndicatorSize/2)
+                label.Size=UDim2.new(0,EnemyIndicatorSize*5,0,EnemyIndicatorSize)
+                label.TextSize=EnemyIndicatorSize/2
+                label.Text=p.Name.." | HP: "..math.floor(hum.Health)
+                label.Visible=true
+            else label.Visible=false end
+        elseif EnemyIndicators[p] then
+            EnemyIndicators[p].Visible=false
+        end
+    end
+end
+
+-- ===== Function Indicators =====
+local IndicatorFrame=Instance.new("Frame",ScreenGui)
+IndicatorFrame.Size=UDim2.new(0,120,0,220)
+IndicatorFrame.Position=UDim2.new(0,10,0.5,-110)
+IndicatorFrame.BackgroundTransparency=1
+
+local function CreateIndicator(name,y)
+    local f=Instance.new("Frame",IndicatorFrame)
+    f.Size=UDim2.new(0,20,0,20)
+    f.Position=UDim2.new(0,10,0,y)
+    f.BackgroundColor3=Color3.fromRGB(255,0,0)
+    f.BorderSizePixel=0
+    local label=Instance.new("TextLabel",IndicatorFrame)
+    label.Size=UDim2.new(0,80,0,20)
+    label.Position=UDim2.new(0,40,0,y)
+    label.BackgroundTransparency=1
+    label.Text=name
+    label.TextColor3=Color3.fromRGB(255,255,255)
+    label.Font=Enum.Font.SourceSans
+    label.TextSize=16
+    label.TextXAlignment=Enum.TextXAlignment.Left
+    return f
+end
+
+local Indicators={}
+Indicators.Aimbot=CreateIndicator("Aimbot",0)
+Indicators.Chams=CreateIndicator("Chams",30)
+Indicators.Fly=CreateIndicator("Fly",60)
+Indicators.Speed=CreateIndicator("Speed",90)
+Indicators.Noclip=CreateIndicator("Noclip",120)
+
+-- ===== Watermark =====
+local Watermark=Instance.new("TextLabel",ScreenGui)
+Watermark.Position=UDim2.new(1,-250,0,10)
+Watermark.Size=UDim2.new(0,240,0,50)
+Watermark.BackgroundTransparency=0.5
+Watermark.BackgroundColor3=Color3.fromRGB(0,0,0)
+Watermark.TextColor3=Color3.fromRGB(255,255,255)
+Watermark.Font=Enum.Font.SourceSansBold
+Watermark.TextSize=16
+Watermark.TextXAlignment=Enum.TextXAlignment.Left
+Watermark.TextYAlignment=Enum.TextYAlignment.Top
+
+-- ===== RenderStepped =====
+local lastTime=tick()
+RunService.RenderStepped:Connect(function()
+    local char=LP.Character
+    if not char then return end
+    local hrp=char:FindFirstChild("HumanoidRootPart")
+    local hum=char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+
+    -- Aimbot
+    if AimbotEnabled and Aiming then
+        local target=GetClosest()
+        if target and target.Character and target.Character:FindFirstChild(AIM_PART) then
+            local targetPos=target.Character[AIM_PART].Position
+            Camera.CFrame=Camera.CFrame:Lerp(CFrame.lookAt(Camera.CFrame.Position,targetPos),SmoothAim)
+        end
+    end
+
+    -- Speed
+    hum.WalkSpeed=SpeedEnabled and FastSpeed or NormalSpeed
+
+    -- Fly
+    if FlyEnabled then
+        if not bodyGyro then
+            bodyGyro=Instance.new("BodyGyro",hrp)
+            bodyGyro.P=90000
+            bodyGyro.MaxTorque=Vector3.new(9e9,9e9,9e9)
+            bodyVel=Instance.new("BodyVelocity",hrp)
+            bodyVel.MaxForce=Vector3.new(9e9,9e9,9e9)
+        end
+        local dir=Vector3.zero
+        if UIS:IsKeyDown(Enum.KeyCode.W) then dir+=Camera.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then dir-=Camera.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then dir-=Camera.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then dir+=Camera.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.Space) then dir+=Camera.CFrame.UpVector end
+        if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then dir-=Camera.CFrame.UpVector end
+        bodyVel.Velocity=dir*FlySpeed
+        bodyGyro.CFrame=Camera.CFrame
+    else
+        if bodyVel then bodyVel:Destroy(); bodyVel=nil end
+        if bodyGyro then bodyGyro:Destroy(); bodyGyro=nil end
+    end
+
+    -- Chams
+    if ChamsEnabled then
+        UpdateChams()
+        for part,h in pairs(Chams) do
+            if h and h.Parent then h.FillColor=ChamsColor end
+        end
+    end
+
+    -- Enemy Indicators
+    UpdateEnemyIndicators()
+
+    -- Noclip
+    if NoclipEnabled then
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
+    else
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and not part.CanCollide then
+                part.CanCollide = true
+            end
+        end
+    end
+
+    -- Function Indicators
+    Indicators.Aimbot.BackgroundColor3=AimbotEnabled and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,0,0)
+    Indicators.Chams.BackgroundColor3=ChamsEnabled and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,0,0)
+    Indicators.Fly.BackgroundColor3=FlyEnabled and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,0,0)
+    Indicators.Speed.BackgroundColor3=SpeedEnabled and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,0,0)
+    Indicators.Noclip.BackgroundColor3=NoclipEnabled and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,0,0)
+
+    -- Watermark
+    local now=tick()
+    local fps=math.floor(1/(now-lastTime))
+    lastTime=now
+    local ping=StatsService.Network.ServerStatsItem["Data Ping"]:GetValue()
+    local placeName=MarketplaceService:GetProductInfo(game.PlaceId).Name
+    Watermark.Text=string.format("Nick: %s\nPing: %d ms | FPS: %d\nPlace: %s",LP.Name,ping,fps,placeName)
+end)
